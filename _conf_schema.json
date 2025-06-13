@@ -1,0 +1,26 @@
+{
+    "ntr_max_per_day": {
+        "description": "每日可牛老婆次数",
+        "type": "int",
+        "default": 3,
+        "hint": "每天可以牛老婆的次数"
+    },
+    "ntr_possibility": {
+        "description": "NTR 成功概率",
+        "type": "float",
+        "default": 0.20,
+        "hint": "牛老婆成功的概率，取值范围 [0, 1]"
+    },
+    "change_max_per_day": {
+        "description": "每天换老婆最大次数",
+        "type": "int",
+        "default": 3,
+        "hint": "每天最多更换老婆的次数"
+    },
+    "swap_max_per_day": {
+        "description": "交换老婆功能每天可使用次数",
+        "type": "int",
+        "default": 2,
+        "hint": "每天可以交换老婆的次数"
+    }
+}
