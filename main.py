@@ -267,6 +267,7 @@ class NtrPlugin(Star):
                             )
                         ]
                     else:
+                        await sql_conn.commit()
                         chain = [
                             Plain(
                                 f"牛{tname}的老婆失败！剩余次数{self.ntr_max_per_day - user_count.ntr_count - 1}"
