@@ -1,7 +1,23 @@
 import aiosqlite
 from typing import List
 
+class Wife:
+    def __init__(self, wife:str):
+        self.wife = wife
+    
+    @classmethod
+    async def init_table(cls, c: aiosqlite.Cursor,wife_list: List[str]):
+        await c.execute(
+            '''
+    CREATE TABLE IF NOT EXISTS all_wife (
+        wife TEXT NOT NULL PRIMARY KEY
+    );
+    '''
+        )
+        await c.executemany("INSERT OR IGNORE INTO all_wife (wife) VALUES (?)", [(name,) for name in wife_list])
 
+
+    
 class UserCount:
     def __init__(self, gid: str, uid: str, day: int, ntr_count: int = 0, swap_count: int = 0, change_count: int = 0):
         self.gid = gid
@@ -110,12 +126,19 @@ class UserWife:
 
     # 获取本群今天已经被抽取的老婆
     @classmethod
-    async def get_group_used_wife(cls, c: aiosqlite.Cursor,  gid: str,day: int) -> List[str]:
-        await c.execute(
-            """SELECT wife FROM wife WHERE day=? and gid=?""",(day, gid),
-        )
-        return [row[0] for row in await c.fetchall()]
-
+    async def get_random_wife(cls, c: aiosqlite.Cursor,  gid: str,day: int) ->str:
+        await c.execute("""
+SELECT a.wife
+FROM all_wife a
+LEFT JOIN wife w ON a.wife = w.wife AND w.day = ? AND w.gid = ?
+WHERE w.wife IS NULL
+ORDER BY RANDOM()
+LIMIT 1;
+""",(day,gid))
+        value =  await c.fetchone()
+        if not value:
+            return ""
+        return value[0]
 
 class SwapRequest:
     def __init__(

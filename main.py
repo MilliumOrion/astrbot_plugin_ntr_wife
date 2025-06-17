@@ -17,6 +17,7 @@ from .db import (
     UserCount,
     UserWife,
     UserWifeHisotry,
+    Wife,
     WifeCount,
 )
 from .utils import IMG_DIR, SQLITE_FILE, get_today, parse_target_uid, parse_wife_name
@@ -37,8 +38,6 @@ class NtrPlugin(Star):
     async def initialize(self):
         # 初始化数据库
         await self.initialize_db()
-        # 初始化老婆
-        self.initialize_wife_data()
         # 定时清理过期数据
         await self.initialize_today_data()
         self.scheduler = BackgroundScheduler()
@@ -58,6 +57,9 @@ class NtrPlugin(Star):
                     await UserCount.init_table(cursor)
                     await UserWifeHisotry.init_table(cursor)
                     await WifeCount.init_table(cursor)
+                    wife_imgs = os.listdir(IMG_DIR)  # 获取老婆图片文件夹中的所有图片
+                    await Wife.init_table(cursor,wife_imgs)
+                    logger.info(f"loaded {len(wife_imgs)} wife images")
                     await sql_conn.commit()
         except Exception as e:
             logger.error(f"Failed to initialize database: {e}" + traceback.format_exc())
@@ -77,11 +79,6 @@ class NtrPlugin(Star):
         except Exception as e:
             logger.error(f"Failed to clear expired data: {e}" + traceback.format_exc())
 
-    # 重新加载老婆数据
-    def initialize_wife_data(self):
-        # 重新加载老婆图片
-        self.wife_imgs = os.listdir(IMG_DIR)  # 获取老婆图片文件夹中的所有图片
-        logger.info(f"loaded {len(self.wife_imgs)} wife images")
 
     async def _get_group_lock(self, gid: str):
         if gid not in self.group_lock:
@@ -91,28 +88,6 @@ class NtrPlugin(Star):
             self.group_create_lock.release()
         return self.group_lock[gid]
 
-    async def _bind_random_wife(
-        self, cursor: aiosqlite.Cursor, gid: str, uid: str, today: int
-    ):
-        lock = await self._get_group_lock(gid)
-        async with lock:
-            used_wifes = set(await UserWife.get_group_used_wife(cursor, gid, today))
-            wife_num = len(self.wife_imgs)
-            start_index = random.randint(0, wife_num - 1)
-            for i in range(wife_num):
-                index = (start_index + i) % wife_num
-                if self.wife_imgs[index] not in used_wifes:
-                    wife_file = self.wife_imgs[index]
-                    await UserWife(
-                        gid=gid, uid=uid, day=today, wife=wife_file
-                    ).save_user_wife(cursor)
-                    return wife_file
-            return None
-
-    def _initialize_wife(self):
-        with self.wife_lock:
-            self.wife_imgs = os.listdir(IMG_DIR)
-
     @filter.command("抽老婆")
     async def animewife(self, event: AstrMessageEvent):
         gid = str(event.message_obj.group_id)
@@ -120,60 +95,58 @@ class NtrPlugin(Star):
             yield event.plain_result("只能在群聊中使用")
             return
         uid = str(event.get_sender_id())
-        if not self.wife_imgs:
-            yield event.chain_result("还没有配置任何老婆哦，请联系管理员配置")
-            return
         today = get_today()
+        lock = await self._get_group_lock(gid)
+        async with lock:
+            # 获取用户今天抽的老婆
+            try:
+                async with aiosqlite.connect(SQLITE_FILE) as sql_conn:
+                    async with sql_conn.cursor() as cursor:
+                        # 今天已经抽老婆的次数
+                        user_count = await UserCount.get_count(cursor, gid, uid, today)
+                        if user_count.change_count >= self.change_max_per_day:
+                            yield event.chain_result(
+                                [Plain(f"今天已经换过{self.change_max_per_day}次老婆啦！")]
+                            )
+                            return
 
-        # 获取用户今天抽的老婆
-        try:
-            async with aiosqlite.connect(SQLITE_FILE) as sql_conn:
-                async with sql_conn.cursor() as cursor:
-                    # 今天已经抽老婆的次数
-                    user_count = await UserCount.get_count(cursor, gid, uid, today)
-                    if user_count.change_count >= self.change_max_per_day:
-                        yield event.chain_result(
-                            [Plain(f"今天已经换过{self.change_max_per_day}次老婆啦！")]
+                        # 选择老婆
+                        wife_file = await UserWife.get_random_wife(cursor,gid,today)
+                        if not wife_file:
+                            yield event.chain_result(
+                                [Plain(f"今天群友已经把所有老婆抽走了！")]
+                            )
+                            return
+
+                        # 登记新老婆
+                        wife_name = parse_wife_name(wife_file)
+                        is_first_get = await UserWifeHisotry.add_wife_histroy(
+                            cursor, uid, wife_name
                         )
-                        return
-
-                    # 选择老婆
-                    wife_file = await self._bind_random_wife(cursor, gid, uid, today)
-                    if not wife_file:
-                        yield event.chain_result(
-                            [Plain(f"今天群友已经把所有老婆抽走了！")]
+                        is_new_wife = await WifeCount.increase_count(
+                            cursor, gid, wife_name, "draw_count"
                         )
+                        # 更新次数
+                        await UserCount.increase_count(
+                            cursor, gid, uid, today, "change_count"
+                        )
+                        await sql_conn.commit()
+
+                        text = "{}你今天的二次元老婆是【{}】{}哒~".format(
+                            "出新了！\n" if is_first_get else "",
+                            wife_name,
+                            "(赞新出厂)" if is_new_wife else "",
+                        )
+                        wife_path = os.path.join(IMG_DIR, wife_file)
+                        if os.path.exists(wife_path):
+                            chain = [Plain(text), Image.fromFileSystem(wife_path)]
+                        else:
+                            chain = [Plain(text), Plain(f"老婆的图片丢失了，请联系管理员")]
+                        yield event.chain_result(chain)
                         return
-
-                    # 登记新老婆
-                    wife_name = parse_wife_name(wife_file)
-                    is_first_get = await UserWifeHisotry.add_wife_histroy(
-                        cursor, uid, wife_name
-                    )
-                    is_new_wife = await WifeCount.increase_count(
-                        cursor, gid, wife_name, "draw_count"
-                    )
-                    # 更新次数
-                    await UserCount.increase_count(
-                        cursor, gid, uid, today, "change_count"
-                    )
-                    await sql_conn.commit()
-
-                    text = "{}你今天的二次元老婆是【{}】{}哒~".format(
-                        "出新了！\n" if is_first_get else "",
-                        wife_name,
-                        "(赞新出厂)" if is_new_wife else "",
-                    )
-                    wife_path = os.path.join(IMG_DIR, wife_file)
-                    if os.path.exists(wife_path):
-                        chain = [Plain(text), Image.fromFileSystem(wife_path)]
-                    else:
-                        chain = [Plain(text), Plain(f"老婆的图片丢失了，请联系管理员")]
-                    yield event.chain_result(chain)
-                    return
-        except Exception as e:
-            logger.error(f"抽老婆失败，{e}" + traceback.format_exc())
-            yield event.chain_result([Plain("抽老婆失败！请联系管理员")])
+            except Exception as e:
+                logger.error(f"抽老婆失败，{e}" + traceback.format_exc())
+                yield event.chain_result([Plain("抽老婆失败！请联系管理员")])
 
     @filter.command("离婚")
     async def divorce(self, event: AstrMessageEvent):
