@@ -120,6 +120,8 @@ class NtrPlugin(Star):
 
                         # 登记新老婆
                         wife_name = parse_wife_name(wife_file)
+                        await UserWife(
+                        gid=gid, uid=uid, day=today, wife=wife_file).save_user_wife(cursor)
                         is_first_get = await UserWifeHisotry.add_wife_histroy(
                             cursor, uid, wife_name
                         )
