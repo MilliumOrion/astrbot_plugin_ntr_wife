@@ -58,7 +58,7 @@ class NtrPlugin(Star):
                     await UserWifeHisotry.init_table(cursor)
                     await WifeCount.init_table(cursor)
                     wife_imgs = os.listdir(IMG_DIR)  # 获取老婆图片文件夹中的所有图片
-                    await Wife.init_table(cursor,wife_imgs)
+                    await Wife.init_table(cursor, wife_imgs)
                     logger.info(f"loaded {len(wife_imgs)} wife images")
                     await sql_conn.commit()
         except Exception as e:
@@ -71,14 +71,11 @@ class NtrPlugin(Star):
             async with aiosqlite.connect(SQLITE_FILE) as sql_conn:
                 async with sql_conn.cursor() as cursor:
                     # 清理过期数据
-                    await UserWife.clear_expired(cursor, today)
-                    await SwapRequest.clear_expired(cursor, today)
                     await UserCount.clear_expired(cursor, today)
                     await sql_conn.commit()
                     logger.info("Expired data cleared successfully")
         except Exception as e:
             logger.error(f"Failed to clear expired data: {e}" + traceback.format_exc())
-
 
     async def _get_group_lock(self, gid: str):
         if gid not in self.group_lock:
@@ -106,12 +103,16 @@ class NtrPlugin(Star):
                         user_count = await UserCount.get_count(cursor, gid, uid, today)
                         if user_count.change_count >= self.change_max_per_day:
                             yield event.chain_result(
-                                [Plain(f"今天已经换过{self.change_max_per_day}次老婆啦！")]
+                                [
+                                    Plain(
+                                        f"今天已经换过{self.change_max_per_day}次老婆啦！"
+                                    )
+                                ]
                             )
                             return
 
                         # 选择老婆
-                        wife_file = await UserWife.get_random_wife(cursor,gid,today)
+                        wife_file = await UserWife.get_random_wife(cursor, gid)
                         if not wife_file:
                             yield event.chain_result(
                                 [Plain(f"今天群友已经把所有老婆抽走了！")]
@@ -120,8 +121,9 @@ class NtrPlugin(Star):
 
                         # 登记新老婆
                         wife_name = parse_wife_name(wife_file)
-                        await UserWife(
-                        gid=gid, uid=uid, day=today, wife=wife_file).save_user_wife(cursor)
+                        await UserWife(gid=gid, uid=uid, wife=wife_file).save_user_wife(
+                            cursor
+                        )
                         is_first_get = await UserWifeHisotry.add_wife_histroy(
                             cursor, uid, wife_name
                         )
@@ -143,7 +145,10 @@ class NtrPlugin(Star):
                         if os.path.exists(wife_path):
                             chain = [Plain(text), Image.fromFileSystem(wife_path)]
                         else:
-                            chain = [Plain(text), Plain(f"老婆的图片丢失了，请联系管理员")]
+                            chain = [
+                                Plain(text),
+                                Plain(f"老婆的图片丢失了，请联系管理员"),
+                            ]
                         yield event.chain_result(chain)
                         return
             except Exception as e:
@@ -157,13 +162,12 @@ class NtrPlugin(Star):
             yield event.plain_result("只能在群聊中使用")
             return
         uid = str(event.get_sender_id())
-        today = get_today()
 
         try:
             async with aiosqlite.connect(SQLITE_FILE) as sql_conn:
                 async with sql_conn.cursor() as cursor:
                     # 查老婆
-                    user_wife = await UserWife.get_user_wife(cursor, gid, uid, today)
+                    user_wife = await UserWife.get_user_wife(cursor, gid, uid)
                     wife_file = user_wife.wife
                     if not wife_file:
                         yield event.chain_result([Plain(f"单身狗也配离婚？")])
@@ -171,9 +175,7 @@ class NtrPlugin(Star):
 
                     # 离婚
                     wife_name = parse_wife_name(wife_file)
-                    await UserWife(gid=gid, uid=uid, day=today, wife="").save_user_wife(
-                        cursor
-                    )
+                    await UserWife(gid=gid, uid=uid, wife="").save_user_wife(cursor)
                     await WifeCount.increase_count(
                         cursor, gid, wife_name, "divorce_count"
                     )
@@ -216,7 +218,7 @@ class NtrPlugin(Star):
                         return
 
                     # 目标老婆
-                    target_wife = await UserWife.get_user_wife(cursor, gid, tid, today)
+                    target_wife = await UserWife.get_user_wife(cursor, gid, tid)
                     if not target_wife.wife:
                         yield event.chain_result([Plain(f"{tname}今天还没有老婆")])
                         return
@@ -227,11 +229,9 @@ class NtrPlugin(Star):
                     if random.random() < self.ntr_possibility:
                         target_wife_name = parse_wife_name(target_wife.wife)
                         await UserWife(
-                            gid=gid, uid=uid, day=today, wife=target_wife.wife
+                            gid=gid, uid=uid, wife=target_wife.wife
                         ).save_user_wife(cursor)
-                        await UserWife(
-                            gid=gid, uid=tid, day=today, wife=""
-                        ).save_user_wife(cursor)
+                        await UserWife(gid=gid, uid=tid, wife="").save_user_wife(cursor)
                         await WifeCount.increase_count(
                             cursor, gid, target_wife_name, "ntr_count"
                         )
@@ -266,12 +266,11 @@ class NtrPlugin(Star):
             # 没有指定人，就查自己
             tid = uid
             tname = "你"
-        today = get_today()
         try:
             async with aiosqlite.connect(SQLITE_FILE) as sql_conn:
                 async with sql_conn.cursor() as cursor:
                     # 查
-                    user_wife = await UserWife.get_user_wife(cursor, gid, tid, today)
+                    user_wife = await UserWife.get_user_wife(cursor, gid, tid)
                     if not user_wife.wife:
                         yield event.chain_result([Plain(f"没有找到{tname}的老婆信息")])
                         return
@@ -337,14 +336,14 @@ class NtrPlugin(Star):
                         return
 
                     # 自己的老婆
-                    source_wife = await UserWife.get_user_wife(cursor, gid, sid, today)
+                    source_wife = await UserWife.get_user_wife(cursor, gid, sid)
                     if not source_wife.wife:
                         yield event.chain_result([Plain("你还没有老婆，请先抽老婆！")])
                         return
                     source_wife_name = parse_wife_name(source_wife.wife)
 
                     # 别人的老婆
-                    target_wife = await UserWife.get_user_wife(cursor, gid, tid, today)
+                    target_wife = await UserWife.get_user_wife(cursor, gid, tid)
                     if not target_wife.wife:
                         yield event.chain_result([Plain(f"{tname}还没有老婆！")])
                         return
@@ -356,7 +355,6 @@ class NtrPlugin(Star):
                         gid=gid,
                         source_user=sid,
                         target_user=tid,
-                        day=today,
                         source_wife=source_wife.wife,
                         target_wife=target_wife.wife,
                         source_user_name=sname,
@@ -398,13 +396,12 @@ class NtrPlugin(Star):
         if sid == tid:
             yield event.chain_result([Plain("不能和自己换老婆")])
             return
-        today = get_today()
 
         try:
             async with aiosqlite.connect(SQLITE_FILE) as sql_conn:
                 async with sql_conn.cursor() as cursor:
                     # 获取对方登记交换的老婆
-                    swap_history = await SwapRequest.get(cursor, gid, sid, tid, today)
+                    swap_history = await SwapRequest.get(cursor, gid, sid, tid)
                     prepare_source_wife_name = parse_wife_name(swap_history.source_wife)
                     prepare_target_wife_name = parse_wife_name(swap_history.target_wife)
                     if not swap_history.target_wife:
@@ -412,14 +409,14 @@ class NtrPlugin(Star):
                         return
 
                     # 获取自己的老婆
-                    target_wife = await UserWife.get_user_wife(cursor, gid, tid, today)
+                    target_wife = await UserWife.get_user_wife(cursor, gid, tid)
                     target_wife_name = parse_wife_name(target_wife.wife)
                     # 获取对方的老婆
-                    source_wife = await UserWife.get_user_wife(cursor, gid, sid, today)
+                    source_wife = await UserWife.get_user_wife(cursor, gid, sid)
                     source_wife_name = parse_wife_name(source_wife.wife)
 
                     # 删除交换记录
-                    await SwapRequest.delete_request(cursor, gid, sid, tid, today)
+                    await SwapRequest.delete_request(cursor, gid, sid, tid)
 
                     if target_wife_name != prepare_target_wife_name:
                         await sql_conn.commit()
@@ -463,10 +460,10 @@ class NtrPlugin(Star):
 
                     # 交换老婆
                     await UserWife(
-                        gid=gid, uid=tid, day=today, wife=source_wife.wife
+                        gid=gid, uid=tid, wife=source_wife.wife
                     ).save_user_wife(cursor)
                     await UserWife(
-                        gid=gid, uid=sid, day=today, wife=target_wife.wife
+                        gid=gid, uid=sid, wife=target_wife.wife
                     ).save_user_wife(cursor)
                     await WifeCount.increase_count(
                         cursor, gid, source_wife_name, "swap_count"
@@ -502,18 +499,17 @@ class NtrPlugin(Star):
         if sid == tid:
             yield event.chain_result([Plain("不能拒绝自己")])
             return
-        today = get_today()
 
         try:
             async with aiosqlite.connect(SQLITE_FILE) as sql_conn:
                 async with sql_conn.cursor() as cursor:
                     # 获取对方登记交换的老婆
-                    swap_history = await SwapRequest.get(cursor, gid, sid, tid, today)
+                    swap_history = await SwapRequest.get(cursor, gid, sid, tid)
                     if not swap_history:
                         yield event.chain_result([Plain("没有找到对方的交换请求")])
                         return
                     # 删除对方登记的交换记录
-                    await SwapRequest.delete_request(cursor, gid, sid, tid, today)
+                    await SwapRequest.delete_request(cursor, gid, sid, tid)
                     await sql_conn.commit()
                     await event.send(
                         MessageChain(
@@ -532,17 +528,16 @@ class NtrPlugin(Star):
             yield event.chain_result("只能在群聊中使用")
             return
         uid = str(event.get_sender_id())
-        today = get_today()
 
         try:
             async with aiosqlite.connect(SQLITE_FILE) as sql_conn:
                 async with sql_conn.cursor() as cursor:
                     # 获取记录
                     swap_by_self = await SwapRequest.list_swap_request(
-                        cursor, gid, uid, "", today
+                        cursor, gid, uid, ""
                     )
                     swap_by_other = await SwapRequest.list_swap_request(
-                        cursor, gid, "", uid, today
+                        cursor, gid, "", uid
                     )
                     if not swap_by_self and not swap_by_other:
                         await sql_conn.commit()
@@ -572,3 +567,22 @@ class NtrPlugin(Star):
         except Exception as e:
             logger.error(f"查看交换请求失败，{e}" + traceback.format_exc())
             yield event.chain_result([Plain("查看交换请求失败！请联系管理员")])
+
+    @filter.command("狗群主无能")
+    async def clear_user_count(self, event: AstrMessageEvent):
+        gid = str(event.message_obj.group_id)
+        if not gid:
+            yield event.chain_result("只能在群聊中使用")
+            return
+        uid = str(event.get_sender_id())
+        today = get_today()
+        try:
+            async with aiosqlite.connect(SQLITE_FILE) as sql_conn:
+                async with sql_conn.cursor() as cursor:
+                    await UserCount.clear_count(cursor, gid, uid, today)
+                    await sql_conn.commit()
+                    yield event.chain_result([Plain("今日次数已经清空")])
+                    return
+        except Exception as e:
+            logger.error(f"清空次数求失败，{e}" + traceback.format_exc())
+            yield event.chain_result([Plain("清空次数失败！请联系管理员")])

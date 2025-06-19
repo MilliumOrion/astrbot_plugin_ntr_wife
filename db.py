@@ -71,12 +71,19 @@ class UserCount:
             (day, gid, uid),
         )
 
+    # 清空次数
+    @classmethod
+    async def clear_count(cls, c: aiosqlite.Cursor, gid: str, uid: str, day: int):
+        await c.execute(
+            """DELETE FROM user_count WHERE day=? AND gid=? AND uid=?""",
+            (day, gid, uid),
+        )
+
 
 class UserWife:
-    def __init__(self, gid: str, uid: str, day: int, wife: str=""):
+    def __init__(self, gid: str, uid: str,  wife: str=""):
         self.gid = gid
         self.uid = uid
-        self.day = day
         self.wife = wife
 
     # 初始化老婆表
@@ -85,56 +92,47 @@ class UserWife:
         await c.execute(
             '''
     CREATE TABLE IF NOT EXISTS wife (
-        day INTEGER,
         gid TEXT,
         uid TEXT,
         wife TEXT DEFAULT '',
-        PRIMARY KEY (day,gid, uid )
+        PRIMARY KEY (gid, uid )
     );
     '''
         )
 
-    # 清理过期的老婆数据
-    @classmethod
-    async def clear_expired(cls, c: aiosqlite.Cursor, today: int) -> None:
-        await c.execute(
-            """DELETE FROM wife WHERE day < ?""",
-            (today,),
-        )
-
     # 获取用户今天的老婆
     @classmethod
-    async def get_user_wife(cls, c: aiosqlite.Cursor, gid: str, uid: str, day: int) -> 'UserWife':
+    async def get_user_wife(cls, c: aiosqlite.Cursor, gid: str, uid: str) -> 'UserWife':
         await c.execute(
-            'SELECT wife FROM wife WHERE day = ? AND gid = ? AND uid = ?',
-            (day, gid, uid),
+            'SELECT wife FROM wife WHERE gid = ? AND uid = ?',
+            (gid, uid),
         )
         value = await c.fetchone()
         if not value:
-            return cls(gid=gid, uid=uid, day=day)
-        return cls(gid=gid, uid=uid, day=day, wife=value[0])
+            return cls(gid=gid, uid=uid)
+        return cls(gid=gid, uid=uid,  wife=value[0])
 
     # 保存用户今天的老婆
     async def save_user_wife(self, c: aiosqlite.Cursor) -> None:
         await c.execute(
-            """INSERT INTO wife (day,gid,uid,wife)
-                VALUES (?,?,?,?) 
-                ON CONFLICT(day,gid,uid) DO UPDATE SET 
+            """INSERT INTO wife (gid,uid,wife)
+                VALUES (?,?,?) 
+                ON CONFLICT(gid,uid) DO UPDATE SET 
                 wife = ?""",
-            (self.day, self.gid, self.uid, self.wife, self.wife),
+            (self.gid, self.uid, self.wife, self.wife),
         )
 
     # 获取本群今天已经被抽取的老婆
     @classmethod
-    async def get_random_wife(cls, c: aiosqlite.Cursor,  gid: str,day: int) ->str:
+    async def get_random_wife(cls, c: aiosqlite.Cursor,  gid: str) ->str:
         await c.execute("""
 SELECT a.wife
 FROM all_wife a
-LEFT JOIN wife w ON a.wife = w.wife AND w.day = ? AND w.gid = ?
+LEFT JOIN wife w ON a.wife = w.wife AND w.gid = ?
 WHERE w.wife IS NULL
 ORDER BY RANDOM()
 LIMIT 1;
-""",(day,gid))
+""",(gid,))
         value =  await c.fetchone()
         if not value:
             return ""
@@ -146,7 +144,6 @@ class SwapRequest:
         gid: str,
         source_user: str,
         target_user: str,
-        day: int,
         source_wife: str = "",
         target_wife: str = "",
         source_user_name: str = "",
@@ -155,7 +152,6 @@ class SwapRequest:
         self.gid = gid
         self.source_user = source_user  # 发起者
         self.target_user = target_user  # 被还者
-        self.day = day
         self.source_wife = source_wife  # 发起者的老婆
         self.target_wife = target_wife  # 被还者的老婆
         self.source_user_name = source_user_name  # 发起者
@@ -169,23 +165,15 @@ class SwapRequest:
         gid TEXT,
         source_user TEXT,
         target_user TEXT,
-        day INTEGER,
         source_wife TEXT DEFAULT '',
         target_wife TEXT DEFAULT '',
         source_user_name TEXT DEFAULT '',
         target_user_name TEXT DEFAULT '',
-        PRIMARY KEY (day,gid, source_user, target_user)
+        PRIMARY KEY (gid, source_user, target_user)
     );
 '''
         )
 
-    # 清理过期的老婆数据
-    @classmethod
-    async def clear_expired(cls, c: aiosqlite.Cursor, today: int) -> None:
-        await c.execute(
-            """DELETE FROM swap_request WHERE day < ?""",
-            (today,),
-        )
 
     # 保存用户今天交换的老婆
     async def save_request(
@@ -193,15 +181,14 @@ class SwapRequest:
         c: aiosqlite.Cursor,
     ) -> None:
         await c.execute(
-            """INSERT INTO swap_request (gid,source_user, target_user, day, source_wife, target_wife,source_user_name, target_user_name)
-                VALUES (?,?,?, ?, ?, ?,?,?) 
-                ON CONFLICT(day,gid,source_user, target_user) DO UPDATE SET 
+            """INSERT INTO swap_request (gid,source_user, target_user,  source_wife, target_wife,source_user_name, target_user_name)
+                VALUES (?,?,?, ?, ?,?,?) 
+                ON CONFLICT(gid,source_user, target_user) DO UPDATE SET 
                 source_wife = ?, target_wife = ?, source_user_name = ?,target_user_name = ?""",
             (
                 self.gid,
                 self.source_user,
                 self.target_user,
-                self.day,
                 self.source_wife,
                 self.target_wife,
                 self.source_user_name,
@@ -215,30 +202,30 @@ class SwapRequest:
 
     # 删除指定双方的交换记录
     @classmethod
-    async def delete_request(cls, c: aiosqlite.Cursor,  gid: str, source_user: str, target_user: str,day: int) -> None:
+    async def delete_request(cls, c: aiosqlite.Cursor,  gid: str, source_user: str, target_user: str) -> None:
         await c.execute(
-            'DELETE FROM swap_request WHERE day=? AND gid=? AND source_user=? AND target_user=?',
-            (day, gid, source_user, target_user),
+            'DELETE FROM swap_request WHERE gid=? AND source_user=? AND target_user=?',
+            ( gid, source_user, target_user),
         )
 
     # 获取用户的交换请求
     @classmethod
-    async def list_swap_request(cls, c: aiosqlite.Cursor,  gid: str, sid: str, tid: str,day: int) -> List['SwapRequest']:
+    async def list_swap_request(cls, c: aiosqlite.Cursor,  gid: str, sid: str, tid: str) -> List['SwapRequest']:
         if tid:
             await c.execute(
                 """SELECT 
-                    gid,source_user, target_user, day, source_wife, target_wife,source_user_name, target_user_name
+                    gid,source_user, target_user, source_wife, target_wife,source_user_name, target_user_name
                 FROM swap_request 
-                WHERE day=? AND gid=? AND target_user=?""",
-                (day, gid, tid),
+                WHERE gid=? AND target_user=?""",
+                (gid, tid),
             )
         elif sid:
             await c.execute(
                 """SELECT 
-                    gid,source_user, target_user, day, source_wife, target_wife,source_user_name, target_user_name
+                    gid,source_user, target_user, source_wife, target_wife,source_user_name, target_user_name
             FROM swap_request 
-            WHERE day=? AND gid=? AND source_user=?""",
-                (day, gid, sid),
+            WHERE gid=? AND source_user=?""",
+                (gid, sid),
             )
         else:
             return []
@@ -247,34 +234,32 @@ class SwapRequest:
                 gid=row[0],
                 source_user=row[1],
                 target_user=row[2],
-                day=row[3],
-                source_wife=row[4],
-                target_wife=row[5],
-                source_user_name=row[6],
-                target_user_name=row[7],
+                source_wife=row[3],
+                target_wife=row[4],
+                source_user_name=row[5],
+                target_user_name=row[6],
             )
             for row in await c.fetchall()
         ]
 
     @classmethod
-    async def get(cls, c: aiosqlite.Cursor, gid: str, sid: str, tid: str, day: str):
+    async def get(cls, c: aiosqlite.Cursor, gid: str, sid: str, tid: str):
         await c.execute(
             """SELECT 
-                gid,source_user, target_user, day, source_wife, target_wife,source_user_name, target_user_name
+                gid,source_user, target_user,source_wife, target_wife,source_user_name, target_user_name
             FROM swap_request 
-            WHERE day=? AND gid=? AND source_user=? AND target_user=? """,
-            (day, gid, sid, tid),
+            WHERE gid=? AND source_user=? AND target_user=? """,
+            (gid, sid, tid),
         )
         row = await c.fetchone()
         return cls(
             gid=row[0],
             source_user=row[1],
             target_user=row[2],
-            day=row[3],
-            source_wife=row[4],
-            target_wife=row[5],
-            source_user_name=row[6],
-            target_user_name=row[7],
+            source_wife=row[3],
+            target_wife=row[4],
+            source_user_name=row[5],
+            target_user_name=row[6],
         )
 
 
