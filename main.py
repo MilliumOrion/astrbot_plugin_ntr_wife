@@ -568,20 +568,24 @@ class NtrPlugin(Star):
             logger.error(f"查看交换请求失败，{e}" + traceback.format_exc())
             yield event.chain_result([Plain("查看交换请求失败！请联系管理员")])
 
-    @filter.command("狗群主无能")
+    @filter.command("清次数")
+    @filter.permission_type(filter.PermissionType.ADMIN)
     async def clear_user_count(self, event: AstrMessageEvent):
         gid = str(event.message_obj.group_id)
         if not gid:
             yield event.chain_result("只能在群聊中使用")
             return
-        uid = str(event.get_sender_id())
+        tid, tname = parse_target_uid(event)
+        if not tid:
+            yield event.chain_result([Plain("请指定群员")])
+            return
         today = get_today()
         try:
             async with aiosqlite.connect(SQLITE_FILE) as sql_conn:
                 async with sql_conn.cursor() as cursor:
-                    await UserCount.clear_count(cursor, gid, uid, today)
+                    await UserCount.clear_count(cursor, gid, tid, today)
                     await sql_conn.commit()
-                    yield event.chain_result([Plain("今日次数已经清空")])
+                    yield event.chain_result([Plain(f"已清空{tname}的使用次数")])
                     return
         except Exception as e:
             logger.error(f"清空次数求失败，{e}" + traceback.format_exc())
