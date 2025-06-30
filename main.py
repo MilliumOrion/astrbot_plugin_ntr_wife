@@ -102,44 +102,31 @@ class NtrPlugin(Star):
                         # 今天已经抽老婆的次数
                         user_count = await UserCount.get_count(cursor, gid, uid, today)
                         if user_count.change_count >= self.change_max_per_day:
-                            yield event.chain_result(
-                                [
-                                    Plain(
-                                        f"今天已经换过{self.change_max_per_day}次老婆啦！"
-                                    )
-                                ]
-                            )
+                            yield event.chain_result([Plain(f"今天已经换过{self.change_max_per_day}次老婆啦！")])
                             return
 
                         # 选择老婆
                         wife_file = await UserWife.get_random_wife(cursor, gid)
                         if not wife_file:
-                            yield event.chain_result(
-                                [Plain(f"今天群友已经把所有老婆抽走了！")]
-                            )
+                            yield event.chain_result([Plain(f"今天群友已经把所有老婆抽走了！")])
                             return
 
                         # 登记新老婆
                         wife_name = parse_wife_name(wife_file)
-                        await UserWife(gid=gid, uid=uid, wife=wife_file).save_user_wife(
-                            cursor
-                        )
-                        is_first_get = await UserWifeHisotry.add_wife_histroy(
-                            cursor, uid, wife_name
-                        )
-                        is_new_wife = await WifeCount.increase_count(
-                            cursor, gid, wife_name, "draw_count"
-                        )
+                        await UserWife(gid=gid, uid=uid, wife=wife_file).save_user_wife(cursor)
+                        is_first_get = await UserWifeHisotry.add_wife_histroy(cursor, uid, wife_name)
+                        # 老婆的使用信息
+                        wife_count = await WifeCount.get_count(cursor, gid, wife_name)
+                        await WifeCount.increase_count(cursor, gid, wife_name, "draw_count")
                         # 更新次数
-                        await UserCount.increase_count(
-                            cursor, gid, uid, today, "change_count"
-                        )
+                        await UserCount.increase_count(cursor, gid, uid, today, "change_count")
+
                         await sql_conn.commit()
 
                         text = "{}你今天的二次元老婆是【{}】{}哒~".format(
                             "出新了！\n" if is_first_get else "",
                             wife_name,
-                            "(赞新出厂)" if is_new_wife else "",
+                            "(赞新出厂)" if not wife_count else "",
                         )
                         wife_path = os.path.join(IMG_DIR, wife_file)
                         if os.path.exists(wife_path):
@@ -149,6 +136,8 @@ class NtrPlugin(Star):
                                 Plain(text),
                                 Plain(f"老婆的图片丢失了，请联系管理员"),
                             ]
+                        if wife_count:
+                            chain.append(Plain(f"\n抽到次数：{wife_count.draw_count}\n牛到次数：{wife_count.ntr_count}\n离婚次数：{wife_count.divorce_count}\n交换次数：{wife_count.swap_count}"))
                         yield event.chain_result(chain)
                         return
             except Exception as e:
@@ -176,14 +165,10 @@ class NtrPlugin(Star):
                     # 离婚
                     wife_name = parse_wife_name(wife_file)
                     await UserWife(gid=gid, uid=uid, wife="").save_user_wife(cursor)
-                    await WifeCount.increase_count(
-                        cursor, gid, wife_name, "divorce_count"
-                    )
+                    await WifeCount.increase_count(cursor, gid, wife_name, "divorce_count")
                     await sql_conn.commit()
 
-                    yield event.chain_result(
-                        [Plain(f"你与老婆【{wife_name}】离婚成功")]
-                    )
+                    yield event.chain_result([Plain(f"你与老婆【{wife_name}】离婚成功")])
                     return
         except Exception as e:
             logger.error(f"离婚失败，{e}" + traceback.format_exc())
@@ -212,9 +197,7 @@ class NtrPlugin(Star):
                     # 今天已经ntr的次数
                     user_count = await UserCount.get_count(cursor, gid, uid, today)
                     if user_count.ntr_count >= self.ntr_max_per_day:
-                        yield event.chain_result(
-                            [Plain(f"每日最多{self.ntr_max_per_day}次，明天再来~")]
-                        )
+                        yield event.chain_result([Plain(f"每日最多{self.ntr_max_per_day}次，明天再来~")])
                         return
 
                     # 目标老婆
@@ -228,26 +211,14 @@ class NtrPlugin(Star):
                     # 牛
                     if random.random() < self.ntr_possibility:
                         target_wife_name = parse_wife_name(target_wife.wife)
-                        await UserWife(
-                            gid=gid, uid=uid, wife=target_wife.wife
-                        ).save_user_wife(cursor)
+                        await UserWife(gid=gid, uid=uid, wife=target_wife.wife).save_user_wife(cursor)
                         await UserWife(gid=gid, uid=tid, wife="").save_user_wife(cursor)
-                        await WifeCount.increase_count(
-                            cursor, gid, target_wife_name, "ntr_count"
-                        )
+                        await WifeCount.increase_count(cursor, gid, target_wife_name, "ntr_count")
                         await sql_conn.commit()
-                        chain = [
-                            Plain(
-                                f"牛{tname}的老婆成功！你现在的老婆是【{target_wife_name}】"
-                            )
-                        ]
+                        chain = [Plain(f"牛{tname}的老婆成功！你现在的老婆是【{target_wife_name}】")]
                     else:
                         await sql_conn.commit()
-                        chain = [
-                            Plain(
-                                f"牛{tname}的老婆失败！剩余次数{self.ntr_max_per_day - user_count.ntr_count - 1}"
-                            )
-                        ]
+                        chain = [Plain(f"牛{tname}的老婆失败！剩余次数{self.ntr_max_per_day - user_count.ntr_count - 1}")]
                     yield event.chain_result(chain)
                     return
         except Exception as e:
@@ -330,9 +301,7 @@ class NtrPlugin(Star):
                     # 今天已经交换的次数
                     user_count = await UserCount.get_count(cursor, gid, sid, today)
                     if user_count.swap_count >= self.swap_max_per_day:
-                        yield event.chain_result(
-                            [Plain(f"每日最多{self.swap_max_per_day}次，明天再来~")]
-                        )
+                        yield event.chain_result([Plain(f"每日最多{self.swap_max_per_day}次，明天再来~")])
                         return
 
                     # 自己的老婆
@@ -361,18 +330,14 @@ class NtrPlugin(Star):
                         target_user_name=tname,
                     ).save_request(cursor)
 
-                    await UserCount.increase_count(
-                        cursor, gid, sid, today, "swap_count"
-                    )
+                    await UserCount.increase_count(cursor, gid, sid, today, "swap_count")
                     await sql_conn.commit()
                     # 请求交换
                     await event.send(
                         MessageChain(
                             [
                                 At(qq=tid),
-                                Plain(
-                                    f"{sname}请求与你换老婆,TA的老婆是【{source_wife_name}】,你的老婆是【{target_wife_name}】。请回复：\n同意交换 @发起者\n拒绝交换 @发起者"
-                                ),
+                                Plain(f"{sname}请求与你换老婆,TA的老婆是【{source_wife_name}】,你的老婆是【{target_wife_name}】。请回复：\n同意交换 @发起者\n拒绝交换 @发起者"),
                             ]
                         )
                     )
@@ -421,21 +386,9 @@ class NtrPlugin(Star):
                     if target_wife_name != prepare_target_wife_name:
                         await sql_conn.commit()
                         if target_wife_name:
-                            yield event.chain_result(
-                                [
-                                    Plain(
-                                        f"{sname}想换的老婆是【{prepare_target_wife_name}】,而你现在的老婆是【{target_wife_name}】，交换失败。"
-                                    )
-                                ]
-                            )
+                            yield event.chain_result([Plain(f"{sname}想换的老婆是【{prepare_target_wife_name}】,而你现在的老婆是【{target_wife_name}】，交换失败。")])
                         else:
-                            yield event.chain_result(
-                                [
-                                    Plain(
-                                        f"{sname}想换的老婆是【{prepare_target_wife_name}】,而你现在没老婆，交换失败。"
-                                    )
-                                ]
-                            )
+                            yield event.chain_result([Plain(f"{sname}想换的老婆是【{prepare_target_wife_name}】,而你现在没老婆，交换失败。")])
                         return
 
                     if source_wife_name != prepare_source_wife_name:
@@ -443,40 +396,26 @@ class NtrPlugin(Star):
                         if source_wife_name:
                             yield event.chain_result(
                                 [
-                                    Plain(
-                                        f"{sname}承诺拿来交换的老婆是【{prepare_source_wife_name}】,而对方现在的老婆是【{source_wife_name}】，交换失败。"
-                                    ),
+                                    Plain(f"{sname}承诺拿来交换的老婆是【{prepare_source_wife_name}】,而对方现在的老婆是【{source_wife_name}】，交换失败。"),
                                 ]
                             )
                         else:
                             yield event.chain_result(
                                 [
-                                    Plain(
-                                        f"{sname}承诺拿来交换的老婆是【{prepare_source_wife_name}】,而对方现在没老婆，交换失败。"
-                                    ),
+                                    Plain(f"{sname}承诺拿来交换的老婆是【{prepare_source_wife_name}】,而对方现在没老婆，交换失败。"),
                                 ]
                             )
                         return
 
                     # 交换老婆
-                    await UserWife(
-                        gid=gid, uid=tid, wife=source_wife.wife
-                    ).save_user_wife(cursor)
-                    await UserWife(
-                        gid=gid, uid=sid, wife=target_wife.wife
-                    ).save_user_wife(cursor)
-                    await WifeCount.increase_count(
-                        cursor, gid, source_wife_name, "swap_count"
-                    )
-                    await WifeCount.increase_count(
-                        cursor, gid, target_wife_name, "swap_count"
-                    )
+                    await UserWife(gid=gid, uid=tid, wife=source_wife.wife).save_user_wife(cursor)
+                    await UserWife(gid=gid, uid=sid, wife=target_wife.wife).save_user_wife(cursor)
+                    await WifeCount.increase_count(cursor, gid, source_wife_name, "swap_count")
+                    await WifeCount.increase_count(cursor, gid, target_wife_name, "swap_count")
                     await sql_conn.commit()
                     yield event.chain_result(
                         [
-                            Plain(
-                                f"交换老婆成功。\n{tname}现在的老婆是【{source_wife_name}】。\n{sname}现在的老婆是【{target_wife_name}】。"
-                            ),
+                            Plain(f"交换老婆成功。\n{tname}现在的老婆是【{source_wife_name}】。\n{sname}现在的老婆是【{target_wife_name}】。"),
                         ]
                     )
                     return
@@ -511,11 +450,7 @@ class NtrPlugin(Star):
                     # 删除对方登记的交换记录
                     await SwapRequest.delete_request(cursor, gid, sid, tid)
                     await sql_conn.commit()
-                    await event.send(
-                        MessageChain(
-                            [At(qq=sid), Plain(f"{tname}拒绝了你的交换请求。")]
-                        )
-                    )
+                    await event.send(MessageChain([At(qq=sid), Plain(f"{tname}拒绝了你的交换请求。")]))
 
         except Exception as e:
             logger.error(f"拒绝换老婆失败，{e}" + traceback.format_exc())
@@ -533,12 +468,8 @@ class NtrPlugin(Star):
             async with aiosqlite.connect(SQLITE_FILE) as sql_conn:
                 async with sql_conn.cursor() as cursor:
                     # 获取记录
-                    swap_by_self = await SwapRequest.list_swap_request(
-                        cursor, gid, uid, ""
-                    )
-                    swap_by_other = await SwapRequest.list_swap_request(
-                        cursor, gid, "", uid
-                    )
+                    swap_by_self = await SwapRequest.list_swap_request(cursor, gid, uid, "")
+                    swap_by_other = await SwapRequest.list_swap_request(cursor, gid, "", uid)
                     if not swap_by_self and not swap_by_other:
                         await sql_conn.commit()
                         yield event.chain_result([Plain("没有任何交换请求")])
@@ -549,17 +480,13 @@ class NtrPlugin(Star):
                         parts.append(f"你今天发起的交换请求:")
                         idx = 1
                         for r in swap_by_self:
-                            parts.append(
-                                f"{idx}.向{r.target_user_name}交换老婆【{parse_wife_name(r.target_wife)}】"
-                            )
+                            parts.append(f"{idx}.向{r.target_user_name}交换老婆【{parse_wife_name(r.target_wife)}】")
                             idx += 1
                     if swap_by_other:
                         parts.append(f"你今天收到的交换请求:")
                         idx = 1
                         for r in swap_by_other:
-                            parts.append(
-                                f"{idx}.{r.source_user_name}请求用【{parse_wife_name(r.source_wife)}】交换【{parse_wife_name(r.target_wife)}】"
-                            )
+                            parts.append(f"{idx}.{r.source_user_name}请求用【{parse_wife_name(r.source_wife)}】交换【{parse_wife_name(r.target_wife)}】")
                             idx += 1
                     await sql_conn.commit()
                     yield event.chain_result([Plain("\n".join(parts))])
