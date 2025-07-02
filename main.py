@@ -17,6 +17,7 @@ from .db import (
     UserCount,
     UserWife,
     UserWifeHisotry,
+    UserWish,
     Wife,
     WifeCount,
 )
@@ -34,6 +35,7 @@ class NtrPlugin(Star):
         self.ntr_possibility = config.get("ntr_possibility")  # ntr成功率
         self.change_max_per_day = config.get("change_max_per_day")  # 每天最多抽老婆次数
         self.swap_max_per_day = config.get("swap_max_per_day")  # 每天最多更换老婆次数
+        self.wish_rate  = config.get("wish_rate")# 许愿后抽老婆增加的倍率
 
     async def initialize(self):
         # 初始化数据库
@@ -57,8 +59,9 @@ class NtrPlugin(Star):
                     await UserCount.init_table(cursor)
                     await UserWifeHisotry.init_table(cursor)
                     await WifeCount.init_table(cursor)
-                    wife_imgs = os.listdir(IMG_DIR)  # 获取老婆图片文件夹中的所有图片
+                    wife_imgs = [file for file in os.listdir(IMG_DIR) if file.endswith(".jpg")]  # 获取老婆图片文件夹中的所有图片
                     await Wife.init_table(cursor, wife_imgs)
+                    await UserWish.init_table(cursor)
                     logger.info(f"loaded {len(wife_imgs)} wife images")
                     await sql_conn.commit()
         except Exception as e:
@@ -105,8 +108,10 @@ class NtrPlugin(Star):
                             yield event.chain_result([Plain(f"今天已经换过{self.change_max_per_day}次老婆啦！")])
                             return
 
+                        # 许愿
+                        user_wish = await UserWish.get_wish(cursor, uid)
                         # 选择老婆
-                        wife_file = await UserWife.get_random_wife(cursor, gid)
+                        wife_file = await UserWife.get_random_wife(cursor, gid, user_wish,self.wish_rate)
                         if not wife_file:
                             yield event.chain_result([Plain(f"今天群友已经把所有老婆抽走了！")])
                             return
@@ -517,3 +522,43 @@ class NtrPlugin(Star):
         except Exception as e:
             logger.error(f"清空次数求失败，{e}" + traceback.format_exc())
             yield event.chain_result([Plain("清空次数失败！请联系管理员")])
+
+    @filter.command("许愿老婆")
+    async def make_wish(self, event: AstrMessageEvent, wife_name: str):
+        gid = str(event.message_obj.group_id)
+        if not gid:
+            yield event.chain_result("只能在群聊中使用")
+            return
+
+        uid = str(event.get_sender_id())
+
+        try:
+            async with aiosqlite.connect(SQLITE_FILE) as sql_conn:
+                async with sql_conn.cursor() as cursor:
+                    if not wife_name or "jpg" in wife_name:
+                        yield event.chain_result("请输入老婆名字")
+                        return
+
+                    if len(wife_name) < 2:
+                        yield event.chain_result("老婆名字至少两个字")
+                        return
+
+                    # 先查询是否存在老婆
+                    wife_file = f"{wife_name}.jpg"
+                    exists = await Wife.is_exists(cursor, wife_file)
+                    if exists:
+                        await UserWish.update_wish(cursor, uid, wife_file)
+                        await sql_conn.commit()
+                        yield event.chain_result([Plain(f"成功许愿老婆:{wife_name}")])
+                        return
+                    else:
+                        wife_possibility = await Wife.search_by_keywords(cursor, wife_name)
+                        wife_possibility = [parse_wife_name(w) for w in wife_possibility]
+                        if wife_possibility:
+                            yield event.chain_result([Plain(f"没有找到老婆:{wife_name}, 可能是以下老婆:\n{','.join(wife_possibility)}")])
+                        else:
+                            yield event.chain_result([Plain(f"没有找到老婆:{wife_name}")])
+                        return
+        except Exception as e:
+            logger.error(f"许愿失败，{e}" + traceback.format_exc())
+            yield event.chain_result([Plain("许愿失败！请联系管理员")])

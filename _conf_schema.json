@@ -22,5 +22,11 @@
         "type": "int",
         "default": 2,
         "hint": "每天可以交换老婆的次数"
+    },
+    "wish_rate":{
+        "description": "许愿增加倍率",
+        "type": "int",
+        "default": 100,
+        "hint": "许愿时随机权重增加倍率"
     }
 }

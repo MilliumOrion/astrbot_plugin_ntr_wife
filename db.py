@@ -17,6 +17,53 @@ class Wife:
         )
         await c.executemany("INSERT OR IGNORE INTO all_wife (wife) VALUES (?)", [(name,) for name in wife_list])
 
+    @classmethod
+    async def search_by_keywords(cls, c: aiosqlite.Cursor, keywords: str) -> List[str]:
+        await c.execute(f"SELECT wife FROM all_wife WHERE wife LIKE '%{keywords}%' limit 5;")
+        values = [row[0] for row in await c.fetchall()]
+        return values
+
+    @classmethod
+    async def is_exists(cls, c: aiosqlite.Cursor, wife_name) -> bool:
+        await c.execute("SELECT wife FROM all_wife WHERE wife = ?;", (wife_name,))
+        return await c.fetchone() is not None
+
+
+class UserWish:
+    def __init__(self, uid: str, wife: str):
+        self.uid = uid
+        self.wife = wife
+
+    @classmethod
+    async def init_table(cls, c: aiosqlite.Cursor):
+        await c.execute(
+            """
+    CREATE TABLE IF NOT EXISTS user_wish (
+        uid TEXT NOT NULL PRIMARY KEY,
+        wife TEXT NOT NULL
+    );
+    """
+        )
+
+    @classmethod
+    async def update_wish(cls, c: aiosqlite.Cursor, uid: str, wife: str):
+        await c.execute(
+            """INSERT INTO user_wish (uid,wife) 
+                VALUES (?,?) 
+                ON CONFLICT(uid) DO UPDATE SET 
+                wife = ?;
+                """,
+            (uid, wife, wife),
+        )
+
+    @classmethod
+    async def get_wish(cls, c: aiosqlite.Cursor, uid: str):
+        await c.execute("SELECT wife FROM user_wish WHERE uid = ?;", (uid,))
+        value = await c.fetchone()
+        if not value:
+            return None
+        return value[0]
+
 
 class UserCount:
     def __init__(self, gid: str, uid: str, day: int, ntr_count: int = 0, swap_count: int = 0, change_count: int = 0):
@@ -124,18 +171,35 @@ class UserWife:
 
     # 获取本群今天已经被抽取的老婆
     @classmethod
-    async def get_random_wife(cls, c: aiosqlite.Cursor, gid: str) -> str:
-        await c.execute(
-            """
+    async def get_random_wife(cls, c: aiosqlite.Cursor, gid: str, user_wish: str, wish_rate: int = 1) -> str:
+        if user_wish:
+            await c.execute(
+                f"""
 SELECT a.wife
 FROM all_wife a
 LEFT JOIN wife w ON a.wife = w.wife AND w.gid = ?
 WHERE w.wife IS NULL
-ORDER BY RANDOM()
+ORDER BY 
+    CASE 
+        WHEN a.wife = ? THEN RANDOM() * {wish_rate}
+        ELSE RANDOM() 
+    END DESC
 LIMIT 1;
-""",
-            (gid,),
-        )
+    """,
+                (gid, user_wish),
+            )
+        else:
+            await c.execute(
+                """
+    SELECT a.wife
+    FROM all_wife a
+    LEFT JOIN wife w ON a.wife = w.wife AND w.gid = ?
+    WHERE w.wife IS NULL
+    ORDER BY RANDOM()
+    LIMIT 1;
+    """,
+                (gid,),
+            )
         value = await c.fetchone()
         if not value:
             return ""
