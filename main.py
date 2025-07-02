@@ -24,7 +24,7 @@ from .db import (
 from .utils import IMG_DIR, SQLITE_FILE, get_today, parse_target_uid, parse_wife_name
 
 
-@register("astrbot_plugin_ntr_wife", "MilliumOrion", "群二次元老婆插件", "1.0.0")
+@register("astrbot_plugin_ntr_wife", "MilliumOrion", "群二次元老婆插件", "1.0.1")
 class NtrPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
