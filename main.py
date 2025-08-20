@@ -536,11 +536,11 @@ class NtrPlugin(Star):
             async with aiosqlite.connect(SQLITE_FILE) as sql_conn:
                 async with sql_conn.cursor() as cursor:
                     if not wife_name or "jpg" in wife_name:
-                        yield event.chain_result("请输入老婆名字")
+                        yield event.chain_result([Plain("请输入老婆名字")])
                         return
 
-                    if len(wife_name) < 2:
-                        yield event.chain_result("老婆名字至少两个字")
+                    if len(wife_name) < 1:
+                        yield event.chain_result([Plain("老婆名字至少两个字")])
                         return
 
                     # 先查询是否存在老婆
